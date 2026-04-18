@@ -75,8 +75,14 @@ jobs:
           VERSION: ${{ steps.get-version.outputs.version }}
           IMAGE: ghcr.io/${{ github.repository }}
         run: |
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f1,2)
           docker tag "syncovery:${VERSION}" "${IMAGE}:${VERSION}"
+          docker tag "syncovery:${VERSION}" "${IMAGE}:${MINOR}"
+          docker tag "syncovery:${VERSION}" "${IMAGE}:${MAJOR}"
           docker tag "syncovery:latest"     "${IMAGE}:latest"
           docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:${MINOR}"
+          docker push "${IMAGE}:${MAJOR}"
           docker push "${IMAGE}:latest"
-          echo "Published ${IMAGE}:${VERSION} and ${IMAGE}:latest"
+          echo "Published ${IMAGE}:${VERSION}, ${IMAGE}:${MINOR}, ${IMAGE}:${MAJOR}, and ${IMAGE}:latest"
