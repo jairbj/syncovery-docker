@@ -1,0 +1,82 @@
+name: Weekly Syncovery Build
+
+on:
+  schedule:
+    # Every Saturday at 08:00 UTC (05:00 GMT-3)
+    - cron: "0 8 * * 6"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Syncovery version to build (e.g. 11.14.0). Leave empty to auto-detect from website."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest Syncovery version
+        id: get-version
+        run: |
+          if [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "Using manually specified version: $VERSION"
+          else
+            PAGE=$(curl -fsSL https://www.syncovery.com/syncovery11linux/)
+            VERSION=$(echo "$PAGE" | grep -oP 'Download Syncovery for Linux v\K[\d.]+' | head -1)
+            if [[ -z "$VERSION" ]]; then
+              echo "ERROR: Could not determine the latest Syncovery version from the website." >&2
+              exit 1
+            fi
+            echo "Detected version from website: $VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if image already exists
+        id: check-image
+        env:
+          VERSION: ${{ steps.get-version.outputs.version }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          if docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
+            echo "Image ${IMAGE}:${VERSION} already exists — skipping build."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Image ${IMAGE}:${VERSION} not found — build required."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Docker image
+        if: steps.check-image.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.get-version.outputs.version }}
+        run: |
+          chmod +x docker-build.sh
+          ./docker-build.sh "$VERSION"
+
+      - name: Tag and push images to ghcr.io
+        if: steps.check-image.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.get-version.outputs.version }}
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          docker tag "syncovery:${VERSION}" "${IMAGE}:${VERSION}"
+          docker tag "syncovery:latest"     "${IMAGE}:latest"
+          docker push "${IMAGE}:${VERSION}"
+          docker push "${IMAGE}:latest"
+          echo "Published ${IMAGE}:${VERSION} and ${IMAGE}:latest"
