@@ -10,6 +10,11 @@ on:
         description: "Syncovery version to build (e.g. 11.14.0). Leave empty to auto-detect from website."
         required: false
         default: ""
+      force_rebuild:
+        description: "Force rebuild and overwrite the image even if it already exists."
+        required: false
+        default: "false"
+        type: boolean
 
 permissions:
   contents: read
@@ -52,8 +57,12 @@ jobs:
         env:
           VERSION: ${{ steps.get-version.outputs.version }}
           IMAGE: ghcr.io/${{ github.repository }}
+          FORCE_REBUILD: ${{ github.event.inputs.force_rebuild }}
         run: |
-          if docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
+          if [[ "$FORCE_REBUILD" == "true" ]]; then
+            echo "Force rebuild requested — skipping existence check."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          elif docker manifest inspect "${IMAGE}:${VERSION}" > /dev/null 2>&1; then
             echo "Image ${IMAGE}:${VERSION} already exists — skipping build."
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
